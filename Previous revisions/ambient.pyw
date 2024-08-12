@@ -10,13 +10,15 @@ initial_contrast = 1.0
 initial_brightness = 0
 initial_image_scale_factor = 0.1
 initial_blur_amount = 99
+initial_capture_mode = 'top'
 
-# Global variables for contrast level, brightness level, step, image scale factor, blur amount
+# Global variables for contrast level, brightness level, step, image scale factor, blur amount and capture mode
 contrast_level = initial_contrast
 brightness_level = initial_brightness
 adjustment_step = 0.1
 image_scale_factor = initial_image_scale_factor
 blur_amount = initial_blur_amount
+capture_mode = initial_capture_mode
 
 key_states = {ord('1'): False, ord('2'): False, ord('3'): False, ord('4'): False, ord('5'): False, ord('6'): False, ord('7'): False, ord('8'): False, ord('9'): False, ord('0'): False}
 
@@ -29,6 +31,7 @@ if 'Settings' in config:
     brightness_level = config.getfloat('Settings', 'brightness')
     image_scale_factor = config.getfloat('Settings', 'scale_factor')
     blur_amount = config.getint('Settings', 'blur_amount')
+    capture_mode = config.get('Settings', 'capture_mode')
 
 def capture_screen(hwnd):
     left, top, right, bot = win32gui.GetClientRect(hwnd)
@@ -57,18 +60,20 @@ def capture_screen(hwnd):
 
 # Restores initial settings
 def reset_settings():
-    global contrast_level, brightness_level, image_scale_factor, blur_amount
+    global contrast_level, brightness_level, image_scale_factor, blur_amount, capture_mode
     contrast_level = initial_contrast
     brightness_level = initial_brightness
     image_scale_factor = initial_image_scale_factor
     blur_amount = initial_blur_amount
+    capture_mode = initial_capture_mode
 
 def save_settings():
     config['Settings'] = {
         'contrast': str(contrast_level),
         'brightness': str(brightness_level),
         'scale_factor': str(image_scale_factor),
-        'blur_amount': str(blur_amount)
+        'blur_amount': str(blur_amount),
+        'capture_mode': str(capture_mode)
     }
     with open('settings.ini', 'w') as configfile:
         config.write(configfile)
@@ -85,7 +90,6 @@ def cycle_capture_mode(mode):
     else:
         return 'full'
 
-capture_mode = 'full'
 
 def adjust_contrast(image, contrast_value):
     # Adjust contrast using the current contrast_level
@@ -127,7 +131,7 @@ def main():
             screenshot = screenshot[:screenshot.shape[0]//3, :]
 
         # Remove the flip line
-        # flipped_screenshot = cv2.flip(screenshot, 1)
+        flipped_screenshot = cv2.flip(screenshot, 1)
 
         if screenshot is not None:
             resized_screenshot = cv2.resize(screenshot, None, fx=image_scale_factor, fy=image_scale_factor)
