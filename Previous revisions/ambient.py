@@ -1,11 +1,37 @@
 import win32gui
 import win32ui
 import win32con
-import win32api
 import cv2
 import numpy as np
+import configparser
 
-def capture_screen(hwnd, left, top, right, bot):
+# Initial settings
+initial_contrast = 1.0
+initial_brightness = 0
+initial_image_scale_factor = 0.1
+initial_blur_amount = 99
+
+# Global variables for contrast level, brightness level, step, image scale factor, blur amount
+contrast_level = initial_contrast
+brightness_level = initial_brightness
+adjustment_step = 0.1
+image_scale_factor = initial_image_scale_factor
+blur_amount = initial_blur_amount
+
+key_states = {ord('1'): False, ord('2'): False, ord('3'): False, ord('4'): False, ord('5'): False, ord('6'): False, ord('7'): False, ord('8'): False, ord('9'): False, ord('0'): False}
+
+# Load saved settings from config file
+config = configparser.ConfigParser()
+config.read('settings.ini')
+
+if 'Settings' in config:
+    contrast_level = config.getfloat('Settings', 'contrast')
+    brightness_level = config.getfloat('Settings', 'brightness')
+    image_scale_factor = config.getfloat('Settings', 'scale_factor')
+    blur_amount = config.getint('Settings', 'blur_amount')
+
+def capture_screen(hwnd):
+    left, top, right, bot = win32gui.GetClientRect(hwnd)
     width = right - left
     height = bot - top
 
@@ -29,53 +55,143 @@ def capture_screen(hwnd, left, top, right, bot):
 
     return img
 
+# Restores initial settings
+def reset_settings():
+    global contrast_level, brightness_level, image_scale_factor, blur_amount
+    contrast_level = initial_contrast
+    brightness_level = initial_brightness
+    image_scale_factor = initial_image_scale_factor
+    blur_amount = initial_blur_amount
+
+def save_settings():
+    config['Settings'] = {
+        'contrast': str(contrast_level),
+        'brightness': str(brightness_level),
+        'scale_factor': str(image_scale_factor),
+        'blur_amount': str(blur_amount)
+    }
+    with open('settings.ini', 'w') as configfile:
+        config.write(configfile)
+
+def cycle_capture_mode(mode):
+    if mode == 'full':
+        return 'left'
+    elif mode == 'left':
+        return 'right'
+    elif mode == 'right':
+        return 'top'
+    elif mode == 'top':
+        return 'full'
+    else:
+        return 'full'
+
+capture_mode = 'full'
+
+def adjust_contrast(image, contrast_value):
+    # Adjust contrast using the current contrast_level
+    adjusted_image = cv2.convertScaleAbs(image, alpha=contrast_value, beta=0)
+    return adjusted_image
+
+def adjust_brightness(image, brightness_value):
+    # Convert image to HLS color space
+    hls_image = cv2.cvtColor(image, cv2.COLOR_BGR2HLS)
+    
+    # Adjust brightness in HLS color space
+    hls_image[:,:,1] = np.clip(hls_image[:,:,1] + brightness_value, 0, 255)
+    
+    # Convert back to BGR color space
+    adjusted_image = cv2.cvtColor(hls_image, cv2.COLOR_HLS2BGR)
+    
+    return adjusted_image
+
 def main():
+    global contrast_level, brightness_level, image_scale_factor, blur_amount, capture_mode  # Use the global variables
+    global key_states
+
     hwnd = win32gui.GetDesktopWindow()
-    screen_width = win32api.GetSystemMetrics(0)
-    screen_height = win32api.GetSystemMetrics(1)
-    half_width = screen_width // 2
 
-    cv2.namedWindow("Display", cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_NORMAL)  # Create resizable window
-
-    cv2.setWindowProperty("Display", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    cv2.namedWindow("Display", cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_NORMAL)
     cv2.setWindowProperty("Display", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
 
     is_fullscreen = False
-    is_left_side = True
+    is_topmost = False
 
     while True:
-        if is_left_side:
-            screenshot = capture_screen(hwnd, 0, 0, half_width, screen_height)
-        else:
-            screenshot = capture_screen(hwnd, half_width, 0, screen_width, screen_height)
-        
-        flipped_screenshot = cv2.flip(screenshot, 1)
+        screenshot = capture_screen(hwnd)
 
-        if flipped_screenshot is not None:
-            blurred_screenshot = flipped_screenshot.copy()  # Make a copy of the original image
-            for _ in range(9):  # Apply blur three times (you can adjust the number)
-                blurred_screenshot = cv2.GaussianBlur(blurred_screenshot, (99, 99), 0)
-            
-            gradient = np.zeros_like(blurred_screenshot)
-            gradient[:, :gradient.shape[1]//2] = [0, 0, 0, 0]
-            gradient[:, gradient.shape[1]//2:] = [0, 0, 0, 255]
-            
-            blended_image = cv2.addWeighted(blurred_screenshot, 0.5, gradient, 0.5, 0)
-            
-            cv2.imshow("Display", blended_image)
+        if capture_mode == 'left':
+            screenshot = screenshot[:, :screenshot.shape[1]//3]
+        elif capture_mode == 'right':
+            screenshot = screenshot[:, screenshot.shape[1]//3:]
+        elif capture_mode == 'top':
+            screenshot = screenshot[:screenshot.shape[0]//3, :]
 
-        key = cv2.waitKey(1)
+        # Remove the flip line
+        # flipped_screenshot = cv2.flip(screenshot, 1)
 
-        if key == 27:  # Escape key
+        if screenshot is not None:
+            resized_screenshot = cv2.resize(screenshot, None, fx=image_scale_factor, fy=image_scale_factor)
+            
+            # Apply combined contrast and brightness adjustment
+            contrasted_screenshot = adjust_contrast(resized_screenshot, contrast_level)
+            adjusted_screenshot = adjust_brightness(contrasted_screenshot, brightness_level)
+            
+            # Apply Gaussian blur with adjustable blur amount
+            blurred_screenshot = cv2.GaussianBlur(adjusted_screenshot, (blur_amount, blur_amount), 0)
+            
+            cv2.imshow("Display", blurred_screenshot)
+
+        key = cv2.waitKey(1) # refresh rate
+
+        if key == 27:
             break
-        elif key == 13:  # Enter key
-            is_left_side = not is_left_side
-        elif key == ord(' '):  # Toggle fullscreen on spacebar
+        elif key == ord(' '):
             if not is_fullscreen:
                 cv2.setWindowProperty("Display", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+                cv2.setWindowProperty("Display", cv2.WND_PROP_TOPMOST, 1)  # Set as topmost window
+                is_topmost = True
             else:
                 cv2.setWindowProperty("Display", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_NORMAL)
+                cv2.setWindowProperty("Display", cv2.WND_PROP_TOPMOST, 0)  # Unset topmost window
+                is_topmost = False
             is_fullscreen = not is_fullscreen
+        elif key == 13:  # Enter key
+            capture_mode = cycle_capture_mode(capture_mode)
+
+        for adjust_key in [ord('1'), ord('2'), ord('3'), ord('4'), ord('5'), ord('6'), ord('7'), ord('8'), ord('9'), ord('0')]:
+            if key_states[adjust_key] and key != adjust_key:
+                key_states[adjust_key] = False
+
+        if key in key_states:
+            if not key_states[key]:
+                key_states[key] = True
+                if key == ord('4'):
+                    contrast_level += adjustment_step
+                elif key == ord('3'):
+                    contrast_level -= adjustment_step
+                elif key == ord('1'):
+                    brightness_level -= adjustment_step * 50
+                elif key == ord('2'):
+                    brightness_level += adjustment_step * 50
+                elif key == ord('5'):
+                    image_scale_factor = max(image_scale_factor - 0.01, 0.01)
+                elif key == ord('6'):
+                    image_scale_factor = min(image_scale_factor + 0.01, 1.0)
+                elif key == ord('7'):
+                    blur_amount = max(blur_amount - 10, 1)
+                elif key == ord('8'):
+                    blur_amount = min(blur_amount + 10, 999)
+                elif key == ord('9'):
+                    save_settings()
+                elif key == ord('0'):
+                    reset_settings()
+
+        try:
+            if cv2.getWindowProperty("Display", cv2.WND_PROP_ASPECT_RATIO) == -1:
+                break
+        except cv2.error as e:
+            if "NULL window" in str(e):
+                break
 
     cv2.destroyAllWindows()
 
